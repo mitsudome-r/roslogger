@@ -4,6 +4,7 @@ project(rosout)
 if(NOT WIN32)
   set_directory_properties(PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
 endif()
+add_compile_options(-std=c++11)
 
 find_package(catkin REQUIRED COMPONENTS roscpp rosgraph_msgs)
 
