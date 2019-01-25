@@ -71,9 +71,7 @@ public:
   Rosout() :
     log_file_name_(ros::file_log::getLogDirectory() + "/rosout.log"),
     handle_(NULL),
-    max_file_size_(100*1024*1024),
     current_file_size_(0),
-    max_backup_index_(10),
     current_backup_index_(0),
     omit_topics_(false)
   {
@@ -123,6 +121,12 @@ public:
       }
     }
 
+    ros::NodeHandle private_nh("~");
+    int max_file_size, max_backup_index;
+    private_nh.param<int>("max_file_size", max_file_size, 100);
+    private_nh.param<int>("max_backup_index", max_backup_index, 10);
+    max_file_size_ = max_file_size;
+    max_backup_index_ = max_backup_index;
     agg_pub_ = node_.advertise<rosgraph_msgs::Log>("/rosout_agg", 0);
     std::cout << "re-publishing aggregated messages to /rosout_agg" << std::endl;
 
