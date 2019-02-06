@@ -1,6 +1,6 @@
 #!/bin/sh
 
-cd /home/mitsudome-r/.ros/log
+cd ~/.ros/log
 
 latest=$(basename $(readlink latest))
 
