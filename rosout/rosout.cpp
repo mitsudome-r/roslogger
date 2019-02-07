@@ -125,7 +125,7 @@ public:
     int max_file_size, max_backup_index;
     private_nh.param<int>("max_file_size", max_file_size, 100);
     private_nh.param<int>("max_backup_index", max_backup_index, 10);
-    max_file_size_ = max_file_size;
+    max_file_size_ = max_file_size * 1024 * 1024;
     max_backup_index_ = max_backup_index;
     agg_pub_ = node_.advertise<rosgraph_msgs::Log>("/rosout_agg", 0);
     std::cout << "re-publishing aggregated messages to /rosout_agg" << std::endl;
