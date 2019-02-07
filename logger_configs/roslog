@@ -1,0 +1,14 @@
+~/.ros/log/latest/*stderr.log
+~/.ros/log/latest/*stdout.log
+{
+    size 10M
+    su mitsudome-r mitsudome-r
+    rotate 10
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}
+
+
