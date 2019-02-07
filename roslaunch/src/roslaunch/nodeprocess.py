@@ -236,13 +236,10 @@ class LocalProcess(Process):
         
         if self.log_output:
             outf, errf = [os.path.join(log_dir, '%s-%s.log'%(logfname, n)) for n in ['stdout', 'stderr']]
-            if self.respawn:
-                mode = 'a'
-            else:
-                mode = 'w'
+            #must open in append mode in order to rotate with logrotate
+            mode = 'a'
             logfileout = open(outf, mode)
-            if is_child_mode():
-                logfileerr = open(errf, mode)
+            logfileerr = open(errf, mode)
 
         # #986: pass in logfile name to node
         node_log_file = log_dir

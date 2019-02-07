@@ -1,0 +1,10 @@
+~/.ros/log/log.tar.gz
+{
+    su mitsudome-r mitsudome-r
+    copy
+    daily
+    rotate 10
+    missingok
+    notifempty
+    nocompress
+}
