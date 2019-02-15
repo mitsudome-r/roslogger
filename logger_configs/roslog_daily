@@ -1,6 +1,6 @@
 ~/.ros/log/log.tar.gz
 {
-    su mitsudome-r mitsudome-r
+    su username username
     copy
     daily
     rotate 10
