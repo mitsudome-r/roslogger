@@ -13,4 +13,4 @@ if [ "${list_dir}" ]; then
 	rm $list_dir -R
 fi
 
-/usr/sbin/logrotate -f /etc/logrotate.d/roslog_daily
+/usr/sbin/logrotate -f /etc/logrotate.d/roslog_directories
