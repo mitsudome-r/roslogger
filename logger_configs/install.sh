@@ -1,11 +1,11 @@
 #!/bin/sh
 
 #setup logrotate configs
-sed -e "s/username/${SUDO_USER}/g" logger_configs/roslog  > /tmp/roslog
-sed -e "s/username/${SUDO_USER}/g" logger_configs/roslog_roscore > /tmp/roslog_roscore
+sed -e "s/username/${SUDO_USER}/g" roslog  > /tmp/roslog
+sed -e "s/username/${SUDO_USER}/g" roslog_directories > /tmp/roslog_directories
 cp /tmp/roslog /etc/logrotate.d/roslog
-cp /tmp/roslog_roscore /etc/logrotate.d/roslog_roscore
-rm /tmp/roslog /tmp/roslog_roscore
+cp /tmp/roslog_directories /etc/logrotate.d/roslog_directories
+rm /tmp/roslog /tmp/roslog_directories
 
 #set up cron
 crontmpfile="/tmp/crontmp.txt"
