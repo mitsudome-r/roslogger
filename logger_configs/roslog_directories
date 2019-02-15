@@ -1,0 +1,10 @@
+~/.ros/log/log.tar
+{
+    su username username
+    copy
+    daily
+    rotate 10
+    missingok
+    notifempty
+    nocompress
+}

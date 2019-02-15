@@ -2,12 +2,12 @@
 ~/.ros/log/latest/*stdout.log
 {
     size 10M
-    su mitsudome-r mitsudome-r
+    su username username
     rotate 10
     missingok
     notifempty
-    compress
-    delaycompress
+    nocompress
+    #delaycompress
     copytruncate
 }
 

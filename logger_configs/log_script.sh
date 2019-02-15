@@ -7,10 +7,13 @@ latest=$(basename $(readlink latest))
 #get list of directories except latest log directory
 list_dir=$(ls */ -d | grep -v "${latest}\|latest")
 
-#compress directories except latest log
-if [ "${list_dir}" ]; then
-	tar -zcvf log.tar.gz $list_dir
-	rm $list_dir -R
-fi
+#get size of given directory in MB
+size=$(du $list_dir -m | awk '{sum+=$1;}END{print sum}') 
 
-/usr/sbin/logrotate -f /etc/logrotate.d/roslog_daily
+#rotate if size is over 100MB
+if [ $size -gt 100 ]; then
+	tar -cvf log.tar $list_dir
+	rm $list_dir -R
+	/usr/sbin/logrotate -f /etc/logrotate.d/roslog_directories
+	rm log.tar
+fi
