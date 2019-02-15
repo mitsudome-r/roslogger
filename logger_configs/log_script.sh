@@ -15,4 +15,5 @@ if [ $size -gt 100 ]; then
 	tar -cvf log.tar $list_dir
 	rm $list_dir -R
 	/usr/sbin/logrotate -f /etc/logrotate.d/roslog_directories
+	rm log.tar
 fi
