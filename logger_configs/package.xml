@@ -1,0 +1,10 @@
+<package>
+  <name>logger_configs</name>
+  <version>1.14.3</version>
+  <description>
+     logger_config package
+  </description>
+  <maintainer email="yuma.nihei@tier4.jp">yn</maintainer>
+  <license>Apache 2</license>
+  <buildtool_depend>catkin</buildtool_depend>
+</package>
