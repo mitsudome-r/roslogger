@@ -3,7 +3,7 @@
 {
     size 10M
     su username username
-    rotate 10
+    rotate 3
     missingok
     notifempty
     nocompress
