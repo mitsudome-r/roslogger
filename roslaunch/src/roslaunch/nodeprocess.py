@@ -146,10 +146,12 @@ def create_node_process(run_id, node, master_uri):
 
     # default for node.output not set is 'log'
     log_output = node.output != 'screen'
+    max_file_size = node.max_file_size
+    max_backup_index = node.max_backup_index
     _logger.debug('process[%s]: returning LocalProcess wrapper')
     return LocalProcess(run_id, node.package, name, args, env, log_output, \
             respawn=node.respawn, respawn_delay=node.respawn_delay, \
-            required=node.required, cwd=node.cwd)
+            required=node.required, cwd=node.cwd, max_file_size = max_file_size, max_backup_index = max_backup_index)
 
 
 class LocalProcess(Process):
@@ -159,7 +161,7 @@ class LocalProcess(Process):
 
     def __init__(self, run_id, package, name, args, env, log_output,
             respawn=False, respawn_delay=0.0, required=False, cwd=None,
-            is_node=True):
+            is_node=True, max_file_size=1, max_backup_index=10):
         """
         @param run_id: unique run ID for this roslaunch. Used to
           generate log directory location. run_id may be None if this
@@ -183,6 +185,10 @@ class LocalProcess(Process):
         @type  cwd: str
         @param is_node: (optional) if True, process is ROS node and accepts ROS node command-line arguments. Default: True
         @type  is_node: False
+        @param max_file_size: (optional) Maximum file size in MB
+        @type  max_file_size: int
+        @param max_backup_index:(optional) Maximum file rotation number
+        @type  max_backup_index: int
         """
         super(LocalProcess, self).__init__(package, name, args, env,
                 respawn, respawn_delay, required)
@@ -197,8 +203,16 @@ class LocalProcess(Process):
         self.is_node = is_node
         self.logging_thread = None
         self.stop_logging = True
-        self.log_file_path = ""
-
+        self.log_file_path = ""        
+        if max_file_size == None:
+            self.max_file_size = 1 * 1024 * 1024
+        else:
+            self.max_file_size = int(max_file_size) * 1024
+        if max_backup_index == None:
+            self.max_backup_index = 10
+        else:
+            self.max_backup_index = int(max_backup_index)
+        
     # NOTE: in the future, info() is going to have to be sufficient for relaunching a process
     def get_info(self):
         """
@@ -245,7 +259,8 @@ class LocalProcess(Process):
             outf, errf = [os.path.join(log_dir, '%s-%s.log'%(logfname, n)) for n in ['stdout', 'stderr']]
             #must open in append mode in order to rotate with logrotate
             mode = 'a'
-            logfileout = open(outf, mode)
+            logfileout = subprocess.PIPE
+#            logfileout = open(outf, mode)
             logfileerr = open(errf, mode)
             self.log_file_path = outf
 
@@ -306,7 +321,7 @@ class LocalProcess(Process):
             _logger.info("process[%s]: cwd will be [%s]", self.name, cwd)
 
             try:
-                self.popen = subprocess.Popen(self.args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=full_env, close_fds=True, preexec_fn=os.setsid)
+                self.popen = subprocess.Popen(self.args, cwd=cwd, stdout=logfileout, stderr=subprocess.STDOUT, env=full_env, close_fds=True, preexec_fn=os.setsid)
             except OSError as e:
                 self.started = True # must set so is_alive state is correct
                 _logger.error("OSError(%d, %s)", e.errno, e.strerror)
@@ -519,8 +534,6 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
             self.popen = None
 
     def _write_to_log(self):
-            max_file_size = 1000000 #size of log file in bytes
-            max_file_count = 10
             buffer_size = 2000
             poll_obj = select.poll()
             text = ""
@@ -544,14 +557,14 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
                         print "failed to open " + self.log_file_path
                         printerrlog("failed to get file size of log file")
                         file_size = 0
-                    if file_size > max_file_size:
-                        #_logger.info("creating new file for [%s]",self.log_file_path)
+                    if file_size > self.max_file_size:
+                        # _logger.info("creating new file for [%s]",self.log_file_path)
                         log_file.close()
-                        log_file = self._rotate_log_file(max_file_count)
+                        log_file = self._rotate_log_file()
             log_file.write(text)
             log_file.flush()
-    def _rotate_log_file(self,max_file_count):
-            for i in reversed(range(max_file_count - 1)):
+    def _rotate_log_file(self):
+            for i in reversed(range(self.max_backup_index)):
                 base_name = os.path.splitext(self.log_file_path)[0]
                 full_name = base_name + str(i) + ".log"
                 if os.path.isfile(full_name):
