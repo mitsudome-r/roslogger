@@ -203,7 +203,7 @@ class LocalProcess(Process):
         self.is_node = is_node
         self.logging_thread = None
         self.stop_logging = True
-        self.log_file_path = ""        
+        self.log_file_path = ""
         if max_file_size == None:
             self.max_file_size = 1 * 1024 * 1024
         else:
@@ -212,7 +212,7 @@ class LocalProcess(Process):
             self.max_backup_index = 10
         else:
             self.max_backup_index = int(max_backup_index)
-        
+
     # NOTE: in the future, info() is going to have to be sufficient for relaunching a process
     def get_info(self):
         """
