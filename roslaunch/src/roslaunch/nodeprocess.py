@@ -564,7 +564,7 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
             log_file.write(text)
             log_file.flush()
     def _rotate_log_file(self):
-            for i in reversed(range(self.max_backup_index)):
+            for i in reversed(range(self.max_backup_index - 1)):
                 base_name = os.path.splitext(self.log_file_path)[0]
                 full_name = base_name + str(i) + ".log"
                 if os.path.isfile(full_name):
