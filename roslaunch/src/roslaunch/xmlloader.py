@@ -333,7 +333,7 @@ class XmlLoader(loader.Loader):
         
     NODE_ATTRS = ['pkg', 'type', 'machine', 'name', 'args', 'output', \
             'respawn', 'respawn_delay', 'cwd', NS, CLEAR_PARAMS, \
-            'launch-prefix', 'required']
+            'launch-prefix', 'required', 'max_file_size', 'max_backup_index']
     TEST_ATTRS = NODE_ATTRS + ['test-name','time-limit', 'retry']
     
     @ifunless
@@ -376,9 +376,9 @@ class XmlLoader(loader.Loader):
             
             # optional attributes
             machine, args, output, respawn, respawn_delay, cwd, launch_prefix, \
-                    required = self.opt_attrs(tag, context, ('machine', 'args',
+                    required, max_file_size, max_backup_index= self.opt_attrs(tag, context, ('machine', 'args',
                         'output', 'respawn', 'respawn_delay', 'cwd',
-                        'launch-prefix', 'required'))
+                        'launch-prefix', 'required', 'max_file_size', 'max_backup_index'))
             if tag.hasAttribute('machine') and not len(machine.strip()):
                 raise XmlParseException("<node> 'machine' must be non-empty: [%s]"%machine)
             if not machine and default_machine:
@@ -429,7 +429,7 @@ class XmlLoader(loader.Loader):
                             respawn_delay=respawn_delay,
                             remap_args=remap_context.remap_args(), env_args=env_context.env_args,
                             output=output, cwd=cwd, launch_prefix=launch_prefix,
-                            required=required, filename=context.filename)
+                            required=required, filename=context.filename, max_file_size=max_file_size, max_backup_index = max_backup_index)
             else:
                 return Test(test_name, pkg, node_type, name=name, namespace=child_ns.ns, 
                             machine_name=machine, args=args,

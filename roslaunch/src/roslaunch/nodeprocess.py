@@ -38,9 +38,13 @@ Local process implementation for running and monitoring nodes.
 
 import os
 import signal
-import subprocess 
+import subprocess
 import time
 import traceback
+import threading
+import thread
+import select
+
 
 import rospkg
 
@@ -77,7 +81,7 @@ def create_master_process(run_id, type_, ros_root, port, num_workers=NUM_WORKERS
     @param timeout: socket timeout for connections.
     @type  timeout: float
     @raise RLException: if type_ or port is invalid
-    """    
+    """
     if port < 1 or port > 65535:
         raise RLException("invalid port assignment: %s"%port)
 
@@ -85,8 +89,8 @@ def create_master_process(run_id, type_, ros_root, port, num_workers=NUM_WORKERS
     # catkin/fuerte: no longer use ROS_ROOT-relative executables, search path instead
     master = type_
     # zenmaster is deprecated and aliased to rosmaster
-    if type_ in [Master.ROSMASTER, Master.ZENMASTER]:        
-        package = 'rosmaster'        
+    if type_ in [Master.ROSMASTER, Master.ZENMASTER]:
+        package = 'rosmaster'
         args = [master, '--core', '-p', str(port), '-w', str(num_workers)]
         if timeout is not None:
             args += ['-t', str(timeout)]
@@ -102,7 +106,7 @@ def create_node_process(run_id, node, master_uri):
     Factory for generating processes for launching local ROS
     nodes. Also registers the process with the L{ProcessMonitor} so that
     events can be generated when the process dies.
-    
+
     @param run_id: run_id of launch
     @type  run_id: str
     @param node: node to launch. Node name must be assigned.
@@ -112,7 +116,7 @@ def create_node_process(run_id, node, master_uri):
     @return: local process instance
     @rtype: L{LocalProcess}
     @raise NodeParamsException: If the node's parameters are improperly specific
-    """    
+    """
     _logger.info("create_node_process: package[%s] type[%s] machine[%s] master_uri[%s]", node.package, node.type, node.machine, master_uri)
     # check input args
     machine = node.machine
@@ -126,7 +130,7 @@ def create_node_process(run_id, node, master_uri):
 
     if not node.name:
         raise ValueError("node name must be assigned")
-    
+
     # we have to include the counter to prevent potential name
     # collisions between the two branches
 
@@ -137,25 +141,27 @@ def create_node_process(run_id, node, master_uri):
     _logger.info('process[%s]: env[%s]', name, env)
 
     args = create_local_process_args(node, machine)
-    
-    _logger.info('process[%s]: args[%s]', name, args)        
+
+    _logger.info('process[%s]: args[%s]', name, args)
 
     # default for node.output not set is 'log'
     log_output = node.output != 'screen'
+    max_file_size = node.max_file_size
+    max_backup_index = node.max_backup_index
     _logger.debug('process[%s]: returning LocalProcess wrapper')
     return LocalProcess(run_id, node.package, name, args, env, log_output, \
             respawn=node.respawn, respawn_delay=node.respawn_delay, \
-            required=node.required, cwd=node.cwd)
+            required=node.required, cwd=node.cwd, max_file_size = max_file_size, max_backup_index = max_backup_index)
 
 
 class LocalProcess(Process):
     """
     Process launched on local machine
     """
-    
+
     def __init__(self, run_id, package, name, args, env, log_output,
             respawn=False, respawn_delay=0.0, required=False, cwd=None,
-            is_node=True):
+            is_node=True, max_file_size=1, max_backup_index=10):
         """
         @param run_id: unique run ID for this roslaunch. Used to
           generate log directory location. run_id may be None if this
@@ -179,7 +185,11 @@ class LocalProcess(Process):
         @type  cwd: str
         @param is_node: (optional) if True, process is ROS node and accepts ROS node command-line arguments. Default: True
         @type  is_node: False
-        """    
+        @param max_file_size: (optional) Maximum file size in MB
+        @type  max_file_size: int
+        @param max_backup_index:(optional) Maximum file rotation number
+        @type  max_backup_index: int
+        """
         super(LocalProcess, self).__init__(package, name, args, env,
                 respawn, respawn_delay, required)
         self.run_id = run_id
@@ -191,12 +201,23 @@ class LocalProcess(Process):
         self.log_dir = None
         self.pid = -1
         self.is_node = is_node
+        self.logging_thread = None
+        self.stop_logging = True
+        self.log_file_path = ""
+        if max_file_size == None:
+            self.max_file_size = 1 * 1024 * 1024
+        else:
+            self.max_file_size = int(max_file_size) * 1024
+        if max_backup_index == None:
+            self.max_backup_index = 10
+        else:
+            self.max_backup_index = int(max_backup_index)
 
     # NOTE: in the future, info() is going to have to be sufficient for relaunching a process
     def get_info(self):
         """
         Get all data about this process in dictionary form
-        """    
+        """
         info = super(LocalProcess, self).get_info()
         info['pid'] = self.pid
         if self.run_id:
@@ -212,7 +233,7 @@ class LocalProcess(Process):
         @return: stdout log file name, stderr log file
         name. Values are None if stdout/stderr are not logged.
         @rtype: str, str
-        """    
+        """
         log_dir = rospkg.get_log_dir(env=os.environ)
         if self.run_id:
             log_dir = os.path.join(log_dir, self.run_id)
@@ -233,13 +254,15 @@ class LocalProcess(Process):
         # will likely reinstate once roserr/rosout is more properly used.
         logfileout = logfileerr = None
         logfname = self._log_name()
-        
+
         if self.log_output:
             outf, errf = [os.path.join(log_dir, '%s-%s.log'%(logfname, n)) for n in ['stdout', 'stderr']]
             #must open in append mode in order to rotate with logrotate
             mode = 'a'
-            logfileout = open(outf, mode)
+            logfileout = subprocess.PIPE
+#            logfileout = open(outf, mode)
             logfileerr = open(errf, mode)
+            self.log_file_path = outf
 
         # #986: pass in logfile name to node
         node_log_file = log_dir
@@ -253,7 +276,7 @@ class LocalProcess(Process):
     def start(self):
         """
         Start the process.
-        
+
         @raise FatalProcessLaunch: if process cannot be started and it
         is not likely to ever succeed
         """
@@ -298,7 +321,7 @@ class LocalProcess(Process):
             _logger.info("process[%s]: cwd will be [%s]", self.name, cwd)
 
             try:
-                self.popen = subprocess.Popen(self.args, cwd=cwd, stdout=logfileout, stderr=logfileerr, env=full_env, close_fds=True, preexec_fn=os.setsid)
+                self.popen = subprocess.Popen(self.args, cwd=cwd, stdout=logfileout, stderr=subprocess.STDOUT, env=full_env, close_fds=True, preexec_fn=os.setsid)
             except OSError as e:
                 self.started = True # must set so is_alive state is correct
                 _logger.error("OSError(%d, %s)", e.errno, e.strerror)
@@ -313,8 +336,14 @@ Please make sure that all the executables in this command exist and have
 executable permission. This is often caused by a bad launch-prefix."""%(e.strerror, ' '.join(self.args)))
                 else:
                     raise FatalProcessLaunch("unable to launch [%s]: %s"%(' '.join(self.args), e.strerror))
-                
+
             self.started = True
+            if self.log_output:
+                self.logging_thread = threading.Thread(target=self._write_to_log)
+                self.logging_thread.setDaemon(True)
+                self.logging_thread.start()
+                self.stop_logging = False
+
             # Check that the process is either still running (poll returns
             # None) or that it completed successfully since when we
             # launched it above (poll returns the return code, 0).
@@ -322,16 +351,22 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
             if poll_result is None or poll_result == 0:
                 self.pid = self.popen.pid
                 printlog_bold("process[%s]: started with pid [%s]"%(self.name, self.pid))
+                # if self.log_output:
+                #     self.stop_logging = True
+                #     self.logging_thread.join()
                 return True
             else:
                 printerrlog("failed to start local process: %s"%(' '.join(self.args)))
+                if self.log_output:
+                    self.stop_logging = True
+                    self.logging_thread.join()
                 return False
         finally:
             self.lock.release()
 
     def _log_name(self):
         return self.name.replace('/', '-')
-    
+
     def is_alive(self):
         """
         @return: True if process is still running
@@ -352,7 +387,7 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
 
     def get_exit_description(self):
         """
-        @return: human-readable description of exit state 
+        @return: human-readable description of exit state
         @rtype: str
         """
         if self.exit_code is None:
@@ -361,7 +396,7 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
             output = 'process has died [pid %s, exit code %s, cmd %s].'%(self.pid, self.exit_code, ' '.join(self.args))
         else:
             output = 'process has finished cleanly'
-                
+
         if self.log_dir:
             # #973: include location of output location in message
             output += '\nlog file: %s*.log'%(os.path.join(self.log_dir, self._log_name()))
@@ -374,10 +409,10 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
         @param errors: error messages. stop() will record messages into this list.
         @type  errors: [str]
         """
-        self.exit_code = self.popen.poll() 
+        self.exit_code = self.popen.poll()
         if self.exit_code is not None:
             _logger.debug("process[%s].stop(): process has already returned %s", self.name, self.exit_code)
-            #print "process[%s].stop(): process has already returned %s"%(self.name, self.exit_code)                
+            #print "process[%s].stop(): process has already returned %s"%(self.name, self.exit_code)
             self.popen = None
             self.stopped = True
             return
@@ -388,11 +423,11 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
 
         try:
             # Start with SIGINT and escalate from there.
-            _logger.info("[%s] sending SIGINT to pgid [%s]", self.name, pgid)                                    
+            _logger.info("[%s] sending SIGINT to pgid [%s]", self.name, pgid)
             os.killpg(pgid, signal.SIGINT)
             _logger.info("[%s] sent SIGINT to pgid [%s]", self.name, pgid)
             timeout_t = time.time() + _TIMEOUT_SIGINT
-            retcode = self.popen.poll()                
+            retcode = self.popen.poll()
             while time.time() < timeout_t and retcode is None:
                 time.sleep(0.1)
                 retcode = self.popen.poll()
@@ -400,7 +435,7 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
             if retcode is None:
                 printerrlog("[%s] escalating to SIGTERM"%self.name)
                 timeout_t = time.time() + _TIMEOUT_SIGTERM
-                os.killpg(pgid, signal.SIGTERM)                
+                os.killpg(pgid, signal.SIGTERM)
                 _logger.info("[%s] sent SIGTERM to pgid [%s]"%(self.name, pgid))
                 retcode = self.popen.poll()
                 while time.time() < timeout_t and retcode is None:
@@ -427,7 +462,7 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
                     _logger.info("process[%s]: SIGTERM killed with return value %s", self.name, retcode)
             else:
                 _logger.info("process[%s]: SIGINT killed with return value %s", self.name, retcode)
-                
+
         finally:
             self.popen = None
 
@@ -436,11 +471,11 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
         Win32 implementation of process killing. In part, refer to
 
           http://aspn.activestate.com/ASPN/Cookbook/Python/Recipe/347462
-        
+
         Note that it doesn't work as completely as _stop_unix as it can't utilise
         group id's. This means that any program which forks children underneath it
         won't get caught by this kill mechanism.
-        
+
         @param errors: error messages. stop() will record messages into this list.
         @type  errors: [str]
         """
@@ -497,31 +532,83 @@ executable permission. This is often caused by a bad launch-prefix."""%(e.strerr
                 _logger.info("process[%s]: SIGINT killed with return value %s", self.name, retcode)
         finally:
             self.popen = None
-			
+
+    def _write_to_log(self):
+            buffer_size = 2000
+            poll_obj = select.poll()
+            text = ""
+            poll_obj.register( self.popen.stdout, select.POLLIN )
+            try:
+                log_file = open( self.log_file_path, 'w')
+            except IOError:
+                print "failed to open log file"
+                log_file = open( os.devnull, 'w')
+            while self.popen is not None and self.stop_logging is False:
+                poll_result = poll_obj.poll(1)
+                if poll_result:
+                    text += self.popen.stdout.readline()
+                    if len(text) > buffer_size:
+                        log_file.write(text)
+                        log_file.flush()
+                        text = ""
+                    try:
+                        file_size =os.path.getsize(self.log_file_path)
+                    except OSError as e:
+                        print "failed to open " + self.log_file_path
+                        printerrlog("failed to get file size of log file")
+                        file_size = 0
+                    if file_size > self.max_file_size:
+                        # _logger.info("creating new file for [%s]",self.log_file_path)
+                        log_file.close()
+                        log_file = self._rotate_log_file()
+            log_file.write(text)
+            log_file.flush()
+    def _rotate_log_file(self):
+            for i in reversed(range(self.max_backup_index - 1)):
+                base_name = os.path.splitext(self.log_file_path)[0]
+                full_name = base_name + str(i) + ".log"
+                if os.path.isfile(full_name):
+                    new_file_name = base_name + str(i+1) + ".log"
+                    os.rename(full_name, new_file_name)
+            base_name = os.path.splitext(self.log_file_path)[0]
+            new_file_name = base_name + "0" + ".log"
+            os.rename(self.log_file_path, new_file_name)
+            try:
+                log_file = open( self.log_file_path, 'w')
+            except IOError:
+                print "failed to open log file"
+                log_file = open( os.devnull, 'w')
+            return log_file
+
     def stop(self, errors=None):
         """
         Stop the process. Record any significant error messages in the errors parameter
-        
+
         @param errors: error messages. stop() will record messages into this list.
         @type  errors: [str]
         """
+
+        self.stop_logging = True
+        if self.logging_thread is not None:
+            self.logging_thread.join()
+
         if errors is None:
             errors = []
         super(LocalProcess, self).stop(errors)
-        self.lock.acquire()        
+        self.lock.acquire()
         try:
             try:
                 _logger.debug("process[%s].stop() starting", self.name)
                 if self.popen is None:
-                    _logger.debug("process[%s].stop(): popen is None, nothing to kill") 
+                    _logger.debug("process[%s].stop(): popen is None, nothing to kill")
                     return
                 if sys.platform in ['win32']: # cygwin seems to be ok
                     self._stop_win32(errors)
                 else:
                     self._stop_unix(errors)
             except:
-                #traceback.print_exc() 
-                _logger.error("[%s] EXCEPTION %s", self.name, traceback.format_exc())                                
+                #traceback.print_exc()
+                _logger.error("[%s] EXCEPTION %s", self.name, traceback.format_exc())
         finally:
             self.stopped = True
             self.lock.release()
@@ -533,7 +620,7 @@ def _cleanup_remappings(args, prefix):
     Remove all instances of args that start with prefix. This is used
     to remove args that were previously added (and are now being
     regenerated due to respawning)
-    """    
+    """
     existing_args = [a for a in args if a.startswith(prefix)]
     for a in existing_args:
         args.remove(a)
