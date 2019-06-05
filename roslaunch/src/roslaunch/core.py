@@ -424,13 +424,13 @@ class Node(object):
                  'remap_args', 'env_args',\
                  'process_name', 'output', 'cwd',
                  'launch_prefix', 'required',
-                 'filename']
+                 'filename', 'max_file_size', 'max_backup_index']
 
     def __init__(self, package, node_type, name=None, namespace='/', \
                  machine_name=None, args='', \
                  respawn=False, respawn_delay=0.0, \
                  remap_args=None,env_args=None, output=None, cwd=None, \
-                 launch_prefix=None, required=False, filename='<unknown>'):
+                 launch_prefix=None, required=False, filename='<unknown>', max_file_size=1, max_backup_index = 10):
         """
         :param package: node package name, ``str``
         :param node_type: node type, ``str``
@@ -448,6 +448,8 @@ class Node(object):
         :param launch_prefix: launch command/arguments to prepend to node executable arguments, ``str``
         :param required: node is required to stay running (launch fails if node dies), ``bool``
         :param filename: name of file Node was parsed from, ``str``
+        :param max_file_size: size of file in MB
+        :param max_backup_index: number of rotating files
 
         :raises: :exc:`ValueError` If parameters do not validate
         """        
@@ -470,6 +472,8 @@ class Node(object):
         self.launch_prefix = launch_prefix or None
         self.required = required
         self.filename = filename
+        self.max_file_size = max_file_size
+        self.max_backup_index = max_backup_index
 
         if self.respawn and self.required:
             raise ValueError("respawn and required cannot both be set to true")
