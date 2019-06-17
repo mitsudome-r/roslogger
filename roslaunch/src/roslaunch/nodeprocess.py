@@ -207,7 +207,7 @@ class LocalProcess(Process):
         if max_file_size == None:
             self.max_file_size = 1 * 1024 * 1024
         else:
-            self.max_file_size = int(max_file_size) * 1024
+            self.max_file_size = int(max_file_size) * 1024 * 1024
         if max_backup_index == None:
             self.max_backup_index = 10
         else:
